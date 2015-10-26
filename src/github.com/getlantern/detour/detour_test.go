@@ -186,6 +186,10 @@ func TestGetAddr(t *testing.T) {
 }
 
 func TestSkipLoopbackAndLAN(t *testing.T) {
+	assert.True(t, isLoopbackOrLAN("tcp", "172.16.9.1:443"))
+	assert.True(t, isLoopbackOrLAN("tcp", "localhost:443"))
+	assert.False(t, isLoopbackOrLAN("tcp", "10.1.1.1:443"))
+	assert.False(t, isLoopbackOrLAN("tcp", "google.com:443"))
 	defer stopMockServers()
 	proxiedURL, _ := newMockServer(detourMsg)
 	mockURL, mock := newMockServer(directMsg)
@@ -195,7 +199,7 @@ func TestSkipLoopbackAndLAN(t *testing.T) {
 	assert.NoError(t, err, "should time out if skip loopback and LAN")
 	mock.Timeout(200*time.Millisecond, directMsg)
 	_, err = client.Get(mockURL)
-	assert.EqualError(t, err, "Get "+mockURL+": net/http: request canceled (Client.Timeout exceeded while awaiting headers)", "should time out if skip loopback and LAN")
+	assert.Error(t, err, "should time out if skip loopback and LAN")
 }
 
 func newClient(proxyURL string, timeout time.Duration) *http.Client {
