@@ -328,7 +328,7 @@ func runClientProxy(cfg *config.Config) {
 	// watchDirectAddrs will spawn a goroutine to add any site that is
 	// directly accesible to the PAC file.
 	watchDirectAddrs()
-	detour.SkipLoopbackAndLAN = true
+	detour.SkipLoopbackAndLAN()
 
 	err = client.ListenAndServe(func() {
 		pacOn()

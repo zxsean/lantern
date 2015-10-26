@@ -186,6 +186,7 @@ func TestGetAddr(t *testing.T) {
 }
 
 func TestSkipLoopbackAndLAN(t *testing.T) {
+	SkipLoopbackAndLAN()
 	assert.True(t, isLoopbackOrLAN("tcp", "172.16.9.1:443"))
 	assert.True(t, isLoopbackOrLAN("tcp", "localhost:443"))
 	assert.False(t, isLoopbackOrLAN("tcp", "10.1.1.1:443"))
@@ -193,7 +194,6 @@ func TestSkipLoopbackAndLAN(t *testing.T) {
 	defer stopMockServers()
 	proxiedURL, _ := newMockServer(detourMsg)
 	mockURL, mock := newMockServer(directMsg)
-	SkipLoopbackAndLAN = true
 	client := newClient(proxiedURL, 100*time.Millisecond)
 	resp, err := client.Get(mockURL)
 	if assert.NoError(t, err, "should have not error if skip loopback and LAN") {

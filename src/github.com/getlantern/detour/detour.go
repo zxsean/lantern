@@ -50,10 +50,14 @@ var DelayBeforeDetour = 0 * time.Millisecond
 // the connection's remote address (in host:port format) will be send to it.
 var DirectAddrCh = make(chan string)
 
-// When set, try to resolve the address in a short period (50ms), and if it
-// resolves to loopback, unspecified, or IPv4 LAN IP address (192.168/16 and
-// 172.16/12, no 10/8 because it's used by Iran), don't detour.
-var SkipLoopbackAndLAN bool
+var skipLoopbackAndLAN uint32
+
+// Try to resolve the address in a short period (50ms), and if it resolves to
+// loopback, unspecified, or IPv4 LAN IP address (192.168/16 and 172.16/12, no
+// 10/8 because it's used by Iran), don't detour.
+func SkipLoopbackAndLAN() {
+	atomic.StoreUint32(&skipLoopbackAndLAN, 1)
+}
 
 var (
 	log = golog.LoggerFor("detour")
@@ -147,16 +151,17 @@ func Dialer(detourDialer dialFunc) func(network, addr string) (net.Conn, error) 
 				dialDetour(network, addr, detourDialer, ch)
 			}()
 		} else {
-			t := time.AfterFunc(TimeoutToConnect, func() {
+			tt := time.AfterFunc(TimeoutToConnect, func() {
 				chAnyConn <- false
 			})
-			defer t.Stop()
+			defer tt.Stop()
 			go func() {
 				dt := time.NewTimer(DelayBeforeDetour)
+				defer dt.Stop()
 				go func() {
 					dialDirect(network, addr, ch)
 				}()
-				if SkipLoopbackAndLAN && isLoopbackOrLAN(network, addr) {
+				if atomic.LoadUint32(&skipLoopbackAndLAN) == 1 && isLoopbackOrLAN(network, addr) {
 					return
 				}
 				select {
@@ -380,8 +385,8 @@ func (dc *Conn) withValidConn(f func(conn)) bool {
 				log.Tracef("Drain closed %s connection to %s", typeOf(c), dc.addr)
 				continue
 			}
-			f(c)
 			dc.conns <- c
+			f(c)
 			return true
 		default:
 			break

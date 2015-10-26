@@ -55,6 +55,8 @@ func newMockServer(msg string) (string, *mockHandler) {
 }
 
 func stopMockServers() {
+	// To prevent data race during test
+	time.Sleep(200 * time.Millisecond)
 	for _, s := range servers {
 		s.Close()
 	}
