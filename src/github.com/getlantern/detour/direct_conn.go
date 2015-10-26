@@ -30,28 +30,26 @@ func init() {
 }
 
 func dialDirect(network string, addr string, ch chan conn) {
-	go func() {
-		log.Tracef("Dialing direct connection to %s", addr)
-		conn, err := net.DialTimeout(network, addr, TimeoutToConnect)
-		detector := blockDetector.Load().(*Detector)
-		if err == nil {
-			if detector.DNSPoisoned(conn) {
-				if err := conn.Close(); err != nil {
-					log.Debugf("Error closing direct connection to %s: %s", addr, err)
-				}
-				log.Debugf("Dial directly to %s, dns hijacked, add to whitelist", addr)
-				AddToWl(addr, false)
-				return
+	log.Tracef("Dialing direct connection to %s", addr)
+	conn, err := net.DialTimeout(network, addr, TimeoutToConnect)
+	detector := blockDetector.Load().(*Detector)
+	if err == nil {
+		if detector.DNSPoisoned(conn) {
+			if err := conn.Close(); err != nil {
+				log.Debugf("Error closing direct connection to %s: %s", addr, err)
 			}
-			log.Tracef("Dial directly to %s succeeded", addr)
-			ch <- &directConn{Conn: conn, addr: addr, readBytes: 0}
-			return
-		} else if detector.TamperingSuspected(err) {
-			log.Debugf("Dial directly to %s, tampering suspected: %s", addr, err)
+			log.Debugf("Dial directly to %s, dns hijacked, add to whitelist", addr)
+			AddToWl(addr, false)
 			return
 		}
-		log.Debugf("Dial directly to %s failed: %s", addr, err)
-	}()
+		log.Tracef("Dial directly to %s succeeded", addr)
+		ch <- &directConn{Conn: conn, addr: addr, readBytes: 0}
+		return
+	} else if detector.TamperingSuspected(err) {
+		log.Debugf("Dial directly to %s, tampering suspected: %s", addr, err)
+		return
+	}
+	log.Debugf("Dial directly to %s failed: %s", addr, err)
 }
 
 func (dc *directConn) ConnType() connType {

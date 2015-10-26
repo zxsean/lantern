@@ -19,17 +19,14 @@ type detourConn struct {
 }
 
 func dialDetour(network string, addr string, dialer dialFunc, ch chan conn) {
-	go func() {
-		log.Tracef("Dialing detour connection to %s", addr)
-		conn, err := dialer(network, addr)
-		if err != nil {
-			log.Errorf("Dial detour to %s failed: %s", addr, err)
-			return
-		}
-		log.Tracef("Dial detour to %s succeeded", addr)
-		ch <- &detourConn{Conn: conn, addr: addr, readBytes: 0}
-	}()
-	return
+	log.Tracef("Dialing detour connection to %s", addr)
+	conn, err := dialer(network, addr)
+	if err != nil {
+		log.Errorf("Dial detour to %s failed: %s", addr, err)
+		return
+	}
+	log.Tracef("Dial detour to %s succeeded", addr)
+	ch <- &detourConn{Conn: conn, addr: addr, readBytes: 0}
 }
 
 func (dc *detourConn) ConnType() connType {

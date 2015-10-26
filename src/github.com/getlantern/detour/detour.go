@@ -125,44 +125,6 @@ func typeOf(c conn) string {
 
 type dialFunc func(network, addr string) (net.Conn, error)
 
-func isLoopbackOrLAN(network, addr string) bool {
-	// a very short timer sufficient to resolve loopback and private address.
-	t := time.NewTimer(50 * time.Millisecond)
-	defer t.Stop()
-	// use buffered channel to avoid blocking goroutine when no receiver
-	ch := make(chan *net.TCPAddr, 1)
-	go func() {
-		tcp, err := net.ResolveTCPAddr(network, addr)
-		if err != nil {
-			log.Tracef("Error resolving %s: %s", addr, err)
-			ch <- nil
-		}
-		ch <- tcp
-	}()
-	select {
-	case <-t.C:
-		log.Tracef("Timeout to resolve %s", addr)
-		return false
-	case tcp := <-ch:
-		if tcp == nil {
-			return false
-		}
-		ip := tcp.IP
-		if ip.IsLoopback() || ip.IsUnspecified() {
-			return true
-		}
-		if ipv4 := ip.To4(); ipv4 != nil {
-			if ipv4[0] == 192 && ipv4[1] == 168 {
-				return true
-			}
-			if ipv4[0] == 172 && ipv4[1] >= 16 && ipv4[1] <= 31 {
-				return true
-			}
-		}
-		return false
-	}
-}
-
 // Dialer returns a function with same signature of net.Dialer.Dial().
 func Dialer(detourDialer dialFunc) func(network, addr string) (net.Conn, error) {
 	return func(network, addr string) (net.Conn, error) {
@@ -181,11 +143,15 @@ func Dialer(detourDialer dialFunc) func(network, addr string) (net.Conn, error) 
 
 		// dialing sequence
 		if whitelisted(addr) {
-			dialDetour(network, addr, detourDialer, ch)
+			go func() {
+				dialDetour(network, addr, detourDialer, ch)
+			}()
 		} else {
 			go func() {
-				dialDirect(network, addr, ch)
 				dt := time.NewTimer(DelayBeforeDetour)
+				go func() {
+					dialDirect(network, addr, ch)
+				}()
 				if SkipLoopbackAndLAN && isLoopbackOrLAN(network, addr) {
 					return
 				}
@@ -194,7 +160,7 @@ func Dialer(detourDialer dialFunc) func(network, addr string) (net.Conn, error) 
 				case <-dc.chDialDetourNow:
 				}
 				if dc.anyDataReceived() {
-					//ch <- nil
+					ch <- nil
 					return
 				}
 				dialDetour(network, addr, detourDialer, ch)
@@ -368,9 +334,9 @@ func (dc *Conn) followupWrite(b []byte) (n int, err error) {
 
 // Close implements the function from net.Conn
 func (dc *Conn) Close() error {
-	log.Tracef("Closing connection to %s", dc.addr)
 	for len(dc.conns) > 0 {
 		conn := <-dc.conns
+		log.Tracef("Closing %s connection to %s", typeOf(conn), dc.addr)
 		if err := conn.Close(); err != nil {
 			log.Debugf("Error closing %s connection to %s: %s", typeOf(conn), dc.addr, err)
 		}
@@ -444,4 +410,42 @@ func isNonidempotentHTTPRequest(b []byte) bool {
 		}
 	}
 	return false
+}
+
+func isLoopbackOrLAN(network, addr string) bool {
+	// a very short timer sufficient to resolve loopback and private address.
+	t := time.NewTimer(50 * time.Millisecond)
+	defer t.Stop()
+	// use buffered channel to avoid blocking goroutine when no receiver
+	ch := make(chan *net.TCPAddr, 1)
+	go func() {
+		tcp, err := net.ResolveTCPAddr(network, addr)
+		if err != nil {
+			log.Tracef("Error resolving %s: %s", addr, err)
+			ch <- nil
+		}
+		ch <- tcp
+	}()
+	select {
+	case <-t.C:
+		log.Tracef("Timeout to resolve %s", addr)
+		return false
+	case tcp := <-ch:
+		if tcp == nil {
+			return false
+		}
+		ip := tcp.IP
+		if ip.IsLoopback() || ip.IsUnspecified() {
+			return true
+		}
+		if ipv4 := ip.To4(); ipv4 != nil {
+			if ipv4[0] == 192 && ipv4[1] == 168 {
+				return true
+			}
+			if ipv4[0] == 172 && ipv4[1] >= 16 && ipv4[1] <= 31 {
+				return true
+			}
+		}
+		return false
+	}
 }
