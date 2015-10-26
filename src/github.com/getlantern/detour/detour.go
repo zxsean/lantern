@@ -41,13 +41,19 @@ import (
 // If no any connection made after this period, stop dialing and fail
 var TimeoutToConnect = 30 * time.Second
 
-// To avoid unnecessarily proxy not-blocked url, detour will dial detour connection
-// after this small delay. Set to zero to dial in parallel to not introducing any delay.
+// To avoid unnecessarily proxy not-blocked url, detour will dial detour
+// connection after this small delay. Set to zero to dial in parallel and not
+// introduce any delay.
 var DelayBeforeDetour = 0 * time.Millisecond
 
 // If DirectAddrCh is set, when a direct connection is closed without any error,
-// the connection's remote address (in host:port format) will be send to it
+// the connection's remote address (in host:port format) will be send to it.
 var DirectAddrCh = make(chan string)
+
+// When set, try to resolve the address in a short period (50ms), and if it
+// resolves to loopback, unspecified, or IPv4 LAN IP address (192.168/16 and
+// 172.16/12, no 10/8 because it's used by Iran), don't detour.
+var SkipLoopbackAndLAN bool
 
 var (
 	log = golog.LoggerFor("detour")
@@ -119,6 +125,44 @@ func typeOf(c conn) string {
 
 type dialFunc func(network, addr string) (net.Conn, error)
 
+func isLoopbackOrLAN(network, addr string) bool {
+	// a very short timer sufficient to resolve loopback and private address.
+	t := time.NewTimer(50 * time.Millisecond)
+	defer t.Stop()
+	// use buffered channel to avoid blocking goroutine when no receiver
+	ch := make(chan *net.TCPAddr, 1)
+	go func() {
+		tcp, err := net.ResolveTCPAddr(network, addr)
+		if err != nil {
+			log.Tracef("Error resolving %s: %s", addr, err)
+			ch <- nil
+		}
+		ch <- tcp
+	}()
+	select {
+	case <-t.C:
+		log.Tracef("Timeout to resolve %s", addr)
+		return false
+	case tcp := <-ch:
+		if tcp == nil {
+			return false
+		}
+		ip := tcp.IP
+		if ip.IsLoopback() || ip.IsUnspecified() {
+			return true
+		}
+		if ipv4 := ip.To4(); ipv4 != nil {
+			if ipv4[0] == 192 && ipv4[1] == 168 {
+				return true
+			}
+			if ipv4[0] == 172 && ipv4[1] >= 16 && ipv4[1] <= 31 {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 // Dialer returns a function with same signature of net.Dialer.Dial().
 func Dialer(detourDialer dialFunc) func(network, addr string) (net.Conn, error) {
 	return func(network, addr string) (net.Conn, error) {
@@ -142,12 +186,15 @@ func Dialer(detourDialer dialFunc) func(network, addr string) (net.Conn, error) 
 			go func() {
 				dialDirect(network, addr, ch)
 				dt := time.NewTimer(DelayBeforeDetour)
+				if SkipLoopbackAndLAN && isLoopbackOrLAN(network, addr) {
+					return
+				}
 				select {
 				case <-dt.C:
 				case <-dc.chDialDetourNow:
 				}
 				if dc.anyDataReceived() {
-					ch <- nil
+					//ch <- nil
 					return
 				}
 				dialDetour(network, addr, detourDialer, ch)

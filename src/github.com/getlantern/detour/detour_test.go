@@ -115,6 +115,7 @@ func TestRemoveFromWhitelist(t *testing.T) {
 	AddToWl(u.Host, false)
 	_, err := client.Get(mockURL)
 	if assert.Error(t, err, "should have error if reading times out through detour") {
+		time.Sleep(50 * time.Millisecond)
 		assert.False(t, whitelisted(u.Host), "should be removed from whitelist if reading times out through detour")
 	}
 
@@ -182,6 +183,19 @@ func TestGetAddr(t *testing.T) {
 		assert.Equal(t, "tcp", c2.RemoteAddr().Network())
 		assert.Equal(t, u2.Host, c2.RemoteAddr().String(), "should get remote address of detour connection")
 	}
+}
+
+func TestSkipLoopbackAndLAN(t *testing.T) {
+	defer stopMockServers()
+	proxiedURL, _ := newMockServer(detourMsg)
+	mockURL, mock := newMockServer(directMsg)
+	SkipLoopbackAndLAN = true
+	client := newClient(proxiedURL, 100*time.Millisecond)
+	_, err := client.Get(mockURL)
+	assert.NoError(t, err, "should time out if skip loopback and LAN")
+	mock.Timeout(200*time.Millisecond, directMsg)
+	_, err = client.Get(mockURL)
+	assert.EqualError(t, err, "Get "+mockURL+": net/http: request canceled (Client.Timeout exceeded while awaiting headers)", "should time out if skip loopback and LAN")
 }
 
 func newClient(proxyURL string, timeout time.Duration) *http.Client {

@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/getlantern/detour"
 	"github.com/getlantern/fronted"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/i18n"
@@ -324,9 +325,10 @@ func runClientProxy(cfg *config.Config) {
 		      }()
 	*/
 
-	// watchDirectAddrs will spawn a goroutine that will add any site that is
+	// watchDirectAddrs will spawn a goroutine to add any site that is
 	// directly accesible to the PAC file.
 	watchDirectAddrs()
+	detour.SkipLoopbackAndLAN = true
 
 	err = client.ListenAndServe(func() {
 		pacOn()
