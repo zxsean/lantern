@@ -103,25 +103,20 @@ func checkFollowupRead(b []byte, n int, err error, addr string) error {
 }
 
 func (dc *directConn) doRead(b []byte, checker readChecker, ch chan ioResult) {
-	go func() {
-		n, err := dc.Conn.Read(b)
-		err = checker(b, n, err, dc.addr)
-		if err != nil {
-			b = nil
-			n = 0
-		} else {
-			atomic.AddUint64(&dc.readBytes, uint64(n))
-		}
-		ch <- ioResult{n, err, dc}
-	}()
-	return
+	n, err := dc.Conn.Read(b)
+	err = checker(b, n, err, dc.addr)
+	if err != nil {
+		b = nil
+		n = 0
+	} else {
+		atomic.AddUint64(&dc.readBytes, uint64(n))
+	}
+	ch <- ioResult{n, err, dc}
 }
 
 func (dc *directConn) Write(b []byte, ch chan ioResult) {
-	go func() {
-		n, err := dc.Conn.Write(b)
-		ch <- ioResult{n, err, dc}
-	}()
+	n, err := dc.Conn.Write(b)
+	ch <- ioResult{n, err, dc}
 }
 
 func (dc *directConn) Close() (err error) {

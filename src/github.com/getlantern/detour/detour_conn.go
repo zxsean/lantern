@@ -42,26 +42,20 @@ func (dc *detourConn) FollowupRead(b []byte, ch chan ioResult) {
 }
 
 func (dc *detourConn) doRead(b []byte, ch chan ioResult) {
-	go func() {
-		n, err := dc.Conn.Read(b)
-		atomic.AddUint64(&dc.readBytes, uint64(n))
-		defer func() { ch <- ioResult{n, err, dc} }()
-		if err != nil {
-			if err != io.EOF {
-				atomic.AddUint32(&dc.errorEncountered, 1)
-			}
-			return
+	n, err := dc.Conn.Read(b)
+	atomic.AddUint64(&dc.readBytes, uint64(n))
+	defer func() { ch <- ioResult{n, err, dc} }()
+	if err != nil {
+		if err != io.EOF {
+			atomic.AddUint32(&dc.errorEncountered, 1)
 		}
-	}()
-	return
+		return
+	}
 }
 
 func (dc *detourConn) Write(b []byte, ch chan ioResult) {
-	go func() {
-		n, err := dc.Conn.Write(b)
-		ch <- ioResult{n, err, dc}
-	}()
-	return
+	n, err := dc.Conn.Write(b)
+	ch <- ioResult{n, err, dc}
 }
 
 func (dc *detourConn) Close() (err error) {

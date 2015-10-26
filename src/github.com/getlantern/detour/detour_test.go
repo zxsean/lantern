@@ -195,11 +195,13 @@ func TestSkipLoopbackAndLAN(t *testing.T) {
 	mockURL, mock := newMockServer(directMsg)
 	SkipLoopbackAndLAN = true
 	client := newClient(proxiedURL, 100*time.Millisecond)
-	_, err := client.Get(mockURL)
-	assert.NoError(t, err, "should time out if skip loopback and LAN")
+	resp, err := client.Get(mockURL)
+	if assert.NoError(t, err, "should have not error if skip loopback and LAN") {
+		assertContent(t, resp, directMsg, "should not detour if skip loopback and LAN")
+	}
 	mock.Timeout(200*time.Millisecond, directMsg)
 	_, err = client.Get(mockURL)
-	assert.Error(t, err, "should time out if skip loopback and LAN")
+	assert.Error(t, err, "should not detour if skip loopback and LAN")
 }
 
 func newClient(proxyURL string, timeout time.Duration) *http.Client {

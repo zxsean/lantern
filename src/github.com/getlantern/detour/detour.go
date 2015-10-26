@@ -147,6 +147,10 @@ func Dialer(detourDialer dialFunc) func(network, addr string) (net.Conn, error) 
 				dialDetour(network, addr, detourDialer, ch)
 			}()
 		} else {
+			t := time.AfterFunc(TimeoutToConnect, func() {
+				chAnyConn <- false
+			})
+			defer t.Stop()
 			go func() {
 				dt := time.NewTimer(DelayBeforeDetour)
 				go func() {
@@ -169,39 +173,32 @@ func Dialer(detourDialer dialFunc) func(network, addr string) (net.Conn, error) 
 
 		// handle dialing result
 		go func() {
-			t := time.NewTimer(TimeoutToConnect)
-			defer t.Stop()
 			// At most 2 connections will be made
 			for i := 0; i < 2; i++ {
 				log.Tracef("Waiting for connection to %s, round %d", dc.addr, i)
-				select {
-				case c := <-ch:
-					if c == nil {
-						log.Tracef("No new connection to %s remaining, return", dc.addr)
-						return
-					}
-					// first connection made, pass it back to caller
-					if i == 0 {
-						dc.conns <- c
-						chAnyConn <- true
-					} else {
-						if c.ConnType() == connTypeDirect {
-							// Could happen if direct route is much slower.
-							log.Debugf("Direct connection to %s established too late, close it", dc.addr)
-							if err := c.Close(); err != nil {
-								log.Debugf("Error closing direct connection to %s: %s", dc.addr, err)
-							}
-							return
-						}
-						log.Tracef("Feed detour connection to %s to read/write op", dc.addr)
-						dc.chDetourConn <- c
-						return
-					}
-				case <-t.C:
-					// still no connection made
-					chAnyConn <- false
+				c := <-ch
+				if c == nil {
+					log.Tracef("No new connection to %s remaining, return", dc.addr)
 					return
 				}
+				// first connection made, pass it back to caller
+				if i == 0 {
+					dc.conns <- c
+					chAnyConn <- true
+					continue
+				}
+				switch c.ConnType() {
+				case connTypeDirect:
+					// Could happen if direct route is much slower.
+					log.Debugf("Direct connection to %s established too late, close it", dc.addr)
+					if err := c.Close(); err != nil {
+						log.Debugf("Error closing direct connection to %s: %s", dc.addr, err)
+					}
+				case connTypeDetour:
+					log.Tracef("Feed detour connection to %s to read/write op", dc.addr)
+					dc.chDetourConn <- c
+				}
+				return
 			}
 		}()
 		// return to caller if any connection available
@@ -227,7 +224,7 @@ func (dc *Conn) Read(b []byte) (n int, err error) {
 	}
 	// At initial stage, we only have one connection,
 	// but detour connection can be available at anytime.
-	if !dc.withValidConn(func(c conn) { c.FirstRead(b, dc.chRead) }) {
+	if !dc.withValidConn(func(c conn) { go c.FirstRead(b, dc.chRead) }) {
 		return 0, fmt.Errorf("no connection available to %s", dc.addr)
 	}
 	for count := 1; count > 0; count-- {
@@ -245,8 +242,8 @@ func (dc *Conn) Read(b []byte) (n int, err error) {
 			dc.muWriteBuffer.RLock()
 			sentBytes := dc.writeBuffer.Bytes()
 			dc.muWriteBuffer.RUnlock()
-			newConn.Write(sentBytes, dc.chWrite)
-			newConn.FirstRead(b, dc.chRead)
+			go newConn.Write(sentBytes, dc.chWrite)
+			go newConn.FirstRead(b, dc.chRead)
 			count++
 			// add new connection to connections
 			dc.conns <- newConn
@@ -287,7 +284,7 @@ func (dc *Conn) Read(b []byte) (n int, err error) {
 
 // followUpRead is called by Read() if a connection's state already settled
 func (dc *Conn) followupRead(b []byte) (n int, err error) {
-	if !dc.withValidConn(func(c conn) { c.FollowupRead(b, dc.chRead) }) {
+	if !dc.withValidConn(func(c conn) { go c.FollowupRead(b, dc.chRead) }) {
 		return 0, fmt.Errorf("no connection available to %s", dc.addr)
 	}
 	result := <-dc.chRead
@@ -307,7 +304,7 @@ func (dc *Conn) Write(b []byte) (n int, err error) {
 		_, _ = dc.writeBuffer.Write(b)
 		dc.muWriteBuffer.Unlock()
 	}
-	if !dc.withValidConn(func(c conn) { c.Write(b, dc.chWrite) }) {
+	if !dc.withValidConn(func(c conn) { go c.Write(b, dc.chWrite) }) {
 		return 0, fmt.Errorf("no connection available to %s", dc.addr)
 	}
 
@@ -325,7 +322,7 @@ func (dc *Conn) Write(b []byte) (n int, err error) {
 
 // followupWrite is called by Write() if a connection's state already settled
 func (dc *Conn) followupWrite(b []byte) (n int, err error) {
-	if !dc.withValidConn(func(c conn) { c.Write(b, dc.chWrite) }) {
+	if !dc.withValidConn(func(c conn) { go c.Write(b, dc.chWrite) }) {
 		return 0, fmt.Errorf("no connection available to %s", dc.addr)
 	}
 	result := <-dc.chWrite
