@@ -15,9 +15,9 @@ import (
 )
 
 // Close connections idle for a period to avoid dangling connections.
-// 1 hour is long enough to avoid interrupt normal connections but short enough
-// to eliminate "too many open files" error.
-var idleTimeout = 1 * time.Hour
+// 15 minutes is long enough to avoid interrupt normal connections but short
+// enough to eliminate "too many open files" error.
+var idleTimeout = 15 * time.Minute
 
 // ChainedServerInfo provides identity information for a chained server.
 type ChainedServerInfo struct {

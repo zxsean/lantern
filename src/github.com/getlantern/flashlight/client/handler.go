@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/getlantern/detour"
 	"github.com/getlantern/flashlight/logging"
@@ -16,6 +17,13 @@ import (
 const (
 	httpConnectMethod = "CONNECT" // HTTP CONNECT method
 )
+
+func init() {
+	// Add a small delay to avoid detour most directly accessible sites.
+	// For those sites much slower accessing directly (delta > 500ms), we
+	// just accelerate them through Lantern server.
+	detour.DelayBeforeDetour = 500 * time.Millisecond
+}
 
 // ServeHTTP implements the method from interface http.Handler using the latest
 // handler available from getHandler() and latest ReverseProxy available from
